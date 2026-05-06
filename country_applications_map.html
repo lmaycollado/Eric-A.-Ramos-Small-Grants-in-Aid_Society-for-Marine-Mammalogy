@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Applications Map — Received, Awarded & Success Rate</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #fff; color: #1a1a18; padding: 2rem; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #1a1a18; color: #f0ede6; }
+    .s-card { background: #2c2c2a; }
+    .s-label { color: #888780; }
+    #tooltip { background: #2c2c2a; border-color: rgba(255,255,255,0.2); color: #f0ede6; }
+    .t-row { color: #888780; }
+    .t-row span:last-child { color: #f0ede6; }
+    .legend-label { color: #888780; }
+    button { background: transparent; color: #f0ede6; border-color: rgba(255,255,255,0.25); }
+    button:hover { background: rgba(255,255,255,0.08); }
+    button.active { background: #0c447c22; color: #85b7eb; border-color: #378add; }
+  }
+  h1 { font-size: 20px; font-weight: 500; margin-bottom: 4px; }
+  .subtitle { font-size: 14px; color: #5f5e5a; margin-bottom: 1.5rem; }
+  @media (prefers-color-scheme: dark) { .subtitle { color: #888780; } }
+
+  .summary-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 1.25rem; max-width: 520px; }
+  .s-card { background: #f1efe8; border-radius: 8px; padding: 10px 16px; }
+  .s-label { font-size: 12px; color: #5f5e5a; margin-bottom: 4px; }
+  .s-val { font-size: 24px; font-weight: 500; }
+
+  .metric-btns { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+  button { font-size: 13px; padding: 5px 14px; cursor: pointer; border-radius: 8px; border: 0.5px solid rgba(0,0,0,0.25); background: transparent; color: #1a1a18; transition: background 0.12s; }
+  button:hover { background: rgba(0,0,0,0.05); }
+  button.active { background: #e6f1fb; color: #185fa5; border-color: #378add; }
+
+  #map-wrap { position: relative; width: 100%; }
+  #map-svg-wrap { width: 100%; }
+  path.country { cursor: pointer; transition: opacity 0.15s; }
+  path.country:hover { opacity: 0.72; }
+
+  #tooltip {
+    position: absolute; pointer-events: none;
+    background: #fff; border: 0.5px solid rgba(0,0,0,0.2);
+    border-radius: 8px; padding: 10px 14px;
+    font-size: 13px; display: none; z-index: 10; min-width: 190px;
+  }
+  .t-name { font-size: 14px; font-weight: 500; margin-bottom: 6px; }
+  .t-row { display: flex; justify-content: space-between; gap: 16px; color: #5f5e5a; margin-bottom: 3px; }
+  .t-row span:last-child { color: #1a1a18; font-weight: 500; }
+
+  .legend { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12px; }
+  .legend-label { color: #5f5e5a; }
+  #leg-bar { width: 180px; height: 10px; border-radius: 3px; }
+  .no-data-swatch { display: inline-block; width: 14px; height: 14px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
+</style>
+</head>
+<body>
+
+<h1>Applications — Received, Awarded &amp; Success Rate</h1>
+<p class="subtitle">Hover over a country to see details. Toggle the metric to change the colour scale.</p>
+
+<div class="summary-row">
+  <div class="s-card"><div class="s-label">Countries</div><div class="s-val">47</div></div>
+  <div class="s-card"><div class="s-label">Applications received</div><div class="s-val">505</div></div>
+  <div class="s-card"><div class="s-label">Total awarded</div><div class="s-val">179</div></div>
+</div>
+
+<div class="metric-btns">
+  <button class="active" data-metric="received">Applications received</button>
+  <button data-metric="awarded">Awarded</button>
+  <button data-metric="rate">Success rate</button>
+</div>
+
+<div id="map-wrap">
+  <div id="map-svg-wrap"></div>
+  <div id="tooltip"></div>
+</div>
+
+<div class="legend">
+  <span class="legend-label" id="leg-lo">0</span>
+  <canvas id="leg-bar" width="180" height="10"></canvas>
+  <span class="legend-label" id="leg-hi">124</span>
+  <span style="margin-left:14px;">
+    <span class="no-data-swatch" id="no-data-swatch" style="background:#d1cfc8;"></span>
+    <span class="legend-label">No data</span>
+  </span>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/topojson/3.0.2/topojson.min.js"></script>
+<script>
+const DATA = {
+  32:  { name: 'Argentina',        received: 57,  awarded: 25, rate: 0.44 },
+  44:  { name: 'Bahamas',          received: 2,   awarded: 0,  rate: 0 },
+  50:  { name: 'Bangladesh',       received: 1,   awarded: 0,  rate: 0 },
+  76:  { name: 'Brazil',           received: 124, awarded: 42, rate: 0.34 },
+  100: { name: 'Bulgaria',         received: 2,   awarded: 1,  rate: 0.5 },
+  116: { name: 'Cambodia',         received: 1,   awarded: 0,  rate: 0 },
+  120: { name: 'Cameroon',         received: 18,  awarded: 8,  rate: 0.44 },
+  132: { name: 'Cape Verde',       received: 3,   awarded: 1,  rate: 0.33 },
+  152: { name: 'Chile',            received: 26,  awarded: 8,  rate: 0.31 },
+  156: { name: 'China',            received: 13,  awarded: 6,  rate: 0.46 },
+  170: { name: 'Colombia',         received: 31,  awarded: 7,  rate: 0.23 },
+  188: { name: 'Costa Rica',       received: 3,   awarded: 0,  rate: 0 },
+  191: { name: 'Croatia',          received: 3,   awarded: 1,  rate: 0.33 },
+  192: { name: 'Cuba',             received: 2,   awarded: 1,  rate: 0.5 },
+  218: { name: 'Ecuador',          received: 4,   awarded: 0,  rate: 0 },
+  270: { name: 'Gambia',           received: 1,   awarded: 0,  rate: 0 },
+  288: { name: 'Ghana',            received: 1,   awarded: 1,  rate: 1 },
+  818: { name: 'Egypt',            received: 1,   awarded: 0,  rate: 0 },
+  222: { name: 'El Salvador',      received: 2,   awarded: 1,  rate: 0.5 },
+  356: { name: 'India',            received: 8,   awarded: 3,  rate: 0.375 },
+  360: { name: 'Indonesia',        received: 3,   awarded: 0,  rate: 0 },
+  364: { name: 'Iran',             received: 1,   awarded: 1,  rate: 1 },
+  388: { name: 'Jamaica',          received: 2,   awarded: 2,  rate: 1 },
+  404: { name: 'Kenya',            received: 1,   awarded: 1,  rate: 1 },
+  414: { name: 'Kuwait',           received: 2,   awarded: 0,  rate: 0 },
+  450: { name: 'Madagascar',       received: 1,   awarded: 1,  rate: 1 },
+  458: { name: 'Malaysia',         received: 1,   awarded: 0,  rate: 0 },
+  480: { name: 'Mauritius',        received: 3,   awarded: 0,  rate: 0 },
+  484: { name: 'Mexico',           received: 102, awarded: 41, rate: 0.40 },
+  524: { name: 'Nepal',            received: 1,   awarded: 1,  rate: 1 },
+  566: { name: 'Nigeria',          received: 1,   awarded: 0,  rate: 0 },
+  586: { name: 'Pakistan',         received: 1,   awarded: 0,  rate: 0 },
+  598: { name: 'Papua New Guinea', received: 1,   awarded: 1,  rate: 1 },
+  591: { name: 'Panama',           received: 2,   awarded: 0,  rate: 0 },
+  604: { name: 'Peru',             received: 4,   awarded: 1,  rate: 0.25 },
+  608: { name: 'Philippines',      received: 9,   awarded: 0,  rate: 0 },
+  620: { name: 'Portugal',         received: 2,   awarded: 0,  rate: 0 },
+  630: { name: 'Puerto Rico',      received: 1,   awarded: 1,  rate: 1 },
+  643: { name: 'Russia',           received: 5,   awarded: 2,  rate: 0.4 },
+  688: { name: 'Serbia',           received: 1,   awarded: 0,  rate: 0 },
+  710: { name: 'South Africa',     received: 20,  awarded: 16, rate: 0.8 },
+  144: { name: 'Sri Lanka',        received: 3,   awarded: 1,  rate: 0.33 },
+  764: { name: 'Thailand',         received: 2,   awarded: 0,  rate: 0 },
+  792: { name: 'Turkey',           received: 1,   awarded: 0,  rate: 0 },
+  804: { name: 'Ukraine',          received: 2,   awarded: 0,  rate: 0 },
+  858: { name: 'Uruguay',          received: 3,   awarded: 1,  rate: 0.33 },
+  862: { name: 'Venezuela',        received: 6,   awarded: 2,  rate: 0.33 },
+};
+
+let currentMetric = 'received';
+const isDark = matchMedia('(prefers-color-scheme: dark)').matches;
+const noDataColor = isDark ? '#3a3936' : '#d1cfc8';
+const strokeColor = isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.7)';
+document.getElementById('no-data-swatch').style.background = noDataColor;
+
+function getColorScale(metric) {
+  if (metric === 'rate')     return d3.scaleSequential([0, 1],   d3.interpolateRgb('#f7c1c1', '#0f6e56'));
+  if (metric === 'received') return d3.scaleSequential([0, 124], d3.interpolateRgb('#b5d4f4', '#042c53'));
+  return                            d3.scaleSequential([0, 42],  d3.interpolateRgb('#c0dd97', '#173404'));
+}
+
+function updateLegend(metric) {
+  const scale = getColorScale(metric);
+  const bar = document.getElementById('leg-bar');
+  const ctx = bar.getContext('2d');
+  const grad = ctx.createLinearGradient(0, 0, 180, 0);
+  for (let i = 0; i <= 10; i++) {
+    grad.addColorStop(i / 10, scale(scale.domain()[0] + (scale.domain()[1] - scale.domain()[0]) * i / 10));
+  }
+  ctx.clearRect(0, 0, 180, 10);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 180, 10);
+  document.getElementById('leg-lo').textContent = '0';
+  document.getElementById('leg-hi').textContent = metric === 'rate' ? '100%' : metric === 'received' ? '124' : '42';
+}
+
+function fillCountry(d) {
+  const row = DATA[+d.id];
+  if (!row) return noDataColor;
+  const val = currentMetric === 'rate' ? row.rate : currentMetric === 'received' ? row.received : row.awarded;
+  return getColorScale(currentMetric)(val);
+}
+
+const W = 960, H = 500;
+const svg = d3.select('#map-svg-wrap').append('svg')
+  .attr('viewBox', `0 0 ${W} ${H}`)
+  .attr('width', '100%');
+
+const projection = d3.geoNaturalEarth1().scale(160).translate([W / 2, H / 2]);
+const pathGen = d3.geoPath(projection);
+const tooltip = document.getElementById('tooltip');
+const mapWrap = document.getElementById('map-wrap');
+
+d3.json('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json').then(world => {
+  const features = topojson.feature(world, world.objects.countries).features;
+
+  svg.selectAll('path.country')
+    .data(features).join('path')
+    .attr('class', 'country')
+    .attr('d', pathGen)
+    .attr('fill', fillCountry)
+    .attr('stroke', strokeColor)
+    .attr('stroke-width', 0.4)
+    .on('mousemove', function(event, d) {
+      const row = DATA[+d.id];
+      if (!row) { tooltip.style.display = 'none'; return; }
+      const rect = mapWrap.getBoundingClientRect();
+      let x = event.clientX - rect.left + 14;
+      let y = event.clientY - rect.top - 10;
+      if (x + 210 > rect.width) x = event.clientX - rect.left - 210;
+      tooltip.style.display = 'block';
+      tooltip.style.left = x + 'px';
+      tooltip.style.top = y + 'px';
+      tooltip.innerHTML = `
+        <div class="t-name">${row.name}</div>
+        <div class="t-row"><span>Applications received</span><span>${row.received}</span></div>
+        <div class="t-row"><span>Awarded</span><span>${row.awarded}</span></div>
+        <div class="t-row"><span>Success rate</span><span>${Math.round(row.rate * 100)}%</span></div>
+      `;
+    })
+    .on('mouseleave', () => { tooltip.style.display = 'none'; });
+
+  updateLegend(currentMetric);
+});
+
+document.querySelectorAll('.metric-btns button').forEach(btn => {
+  btn.addEventListener('click', function () {
+    document.querySelectorAll('.metric-btns button').forEach(b => b.classList.remove('active'));
+    this.classList.add('active');
+    currentMetric = this.dataset.metric;
+    svg.selectAll('path.country').attr('fill', fillCountry);
+    updateLegend(currentMetric);
+  });
+});
+</script>
+</body>
+</html>
